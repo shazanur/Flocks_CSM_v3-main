@@ -330,18 +330,24 @@ def enrich_with_threatbook(iocs: dict) -> str:
 
 def _build_system_prompt(df: pd.DataFrame, cti_block: str = "") -> str:
     lines = [
-        "You are an expert cybersecurity and threat intelligence analyst.",
-        "You are embedded in a live incident monitoring dashboard.",
+        "You are a senior cybersecurity and threat intelligence analyst embedded in a live SOC dashboard.",
         "You have access to ThreatBook CTI — a commercial-grade threat intelligence platform.",
         "",
-        "INSTRUCTIONS:",
-        "- Answer questions concisely and accurately using the data context below.",
-        "- If ThreatBook enrichment data is present, USE IT to give specific, accurate verdicts.",
+        "RESPONSE FORMAT (follow exactly):",
+        "- Write in clear, professional English suitable for a security operations briefing.",
+        "- Begin every response with one sentence summarising the key finding.",
+        "- Use proper markdown: **bold** for key terms, ### headers for 3+ topic responses.",
+        "- Use numbered lists for ranked items; bullet lists for non-ordered items.",
+        "- Separate sections with a blank line for readability.",
+        "- Keep responses under 400 words unless more detail is explicitly requested.",
+        "- End with a **Recommendation:** line when actionable advice is relevant.",
+        "",
+        "CONTENT RULES:",
+        "- Answer accurately using the dashboard data context provided below.",
+        "- If ThreatBook enrichment data is present, use it for specific, accurate verdicts.",
         "- For IPs/domains/hashes, always state the threat verdict, location, and key labels.",
-        "- For CVEs, always mention CVSS score and affected systems if available.",
-        "- If asked to analyse trends or make predictions, reason step by step.",
-        "- Respond in clear English. Use bullet points for lists.",
-        "- Keep responses under 400 words unless more detail is requested.",
+        "- For CVEs, always mention the CVSS score and affected systems if available.",
+        "- When analysing trends, reason step by step before stating conclusions.",
         "",
         "=== DASHBOARD DATA SUMMARY ===",
         f"Total incidents: {len(df)}",
@@ -463,6 +469,31 @@ def chatbot_ui(df: pd.DataFrame):
                  font-size:13px; line-height:1.6; color:#c9d1d9; }
     .gc-msg.user .gc-bubble { background:#1f3349; border:1px solid #2d4a6e; border-bottom-right-radius:4px; }
     .gc-msg.bot  .gc-bubble { background:#161b22; border:1px solid #21262d; border-bottom-left-radius:4px; }
+    /* Native markdown rendered bot responses */
+    .gc-bot-md + div, .gc-bot-md ~ div > div {
+        background: #161b22 !important;
+        border: 1px solid #21262d !important;
+        border-bottom-left-radius: 4px !important;
+        border-radius: 14px !important;
+        padding: 10px 14px !important;
+        font-size: 13px !important;
+        line-height: 1.7 !important;
+        color: #c9d1d9 !important;
+        max-width: 90% !important;
+        margin: 0 0 8px 0 !important;
+    }
+    /* Style markdown elements inside bot bubble */
+    #groq-chat-panel .stMarkdown p { margin: 0 0 6px 0; color: #c9d1d9; font-size: 13px; line-height: 1.7; }
+    #groq-chat-panel .stMarkdown h3 { font-size: 12px; font-weight: 700; color: #f0f6fc;
+        text-transform: uppercase; letter-spacing: .08em; margin: 12px 0 4px;
+        border-bottom: 1px solid #21262d; padding-bottom: 4px; }
+    #groq-chat-panel .stMarkdown ul, #groq-chat-panel .stMarkdown ol
+        { padding-left: 16px; margin: 4px 0 8px; color: #c9d1d9; font-size: 13px; }
+    #groq-chat-panel .stMarkdown li { margin-bottom: 3px; line-height: 1.6; }
+    #groq-chat-panel .stMarkdown strong { color: #f0f6fc; font-weight: 600; }
+    #groq-chat-panel .stMarkdown code
+        { background: #0d1117; border: 1px solid #30363d; border-radius: 4px;
+          padding: 1px 5px; font-size: 11px; color: #79c0ff; font-family: "IBM Plex Mono", monospace; }
     /* IOC enrichment notice badge inside bubble */
     .gc-cti-tag {
         display:inline-block; font-size:10px; font-weight:600;
@@ -546,8 +577,8 @@ def chatbot_ui(df: pd.DataFrame):
     <div class="gcp-header">
         <div class="gcp-avatar">🛡️</div>
         <div>
-            <div class="gcp-title">Chatbot</div>
-            <div class="gcp-sub">Groq LLaMA 3.3-70b · ThreatBook enrichment</div>
+            <div class="gcp-title">CTI Analyst</div>
+            <div class="gcp-sub">LLaMA 3.3-70b · ThreatBook Intelligence</div>
         </div>
         <span class="{tb_badge_cls}">{tb_badge_text}</span>
     </div>
@@ -559,30 +590,47 @@ def chatbot_ui(df: pd.DataFrame):
         st.markdown(f"""
         <div class="gc-empty">
             <div class="gc-empty-icon">🛡️</div>
-            <strong style="color:#c9d1d9;">Chatbot ready</strong><br>
-            Ask about incidents, trends, or paste any<br>
-            <span style="color:#3fb950;">IP · Domain · Hash · CVE · URL</span><br>
-            for live ThreatBook intelligence.
+            <strong style="color:#f0f6fc;font-size:14px;">Analyst Ready</strong><br>
+            <span style="color:#8b949e;font-size:12px;">Submit a query about incidents, threat trends,<br>
+            or paste an indicator for live enrichment.</span><br><br>
+            <span style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:#3fb950;">
+              IP &nbsp;·&nbsp; Domain &nbsp;·&nbsp; Hash &nbsp;·&nbsp; CVE &nbsp;·&nbsp; URL
+            </span>
             {"" if tb_key_present else
-             "<br><span style='color:#f85149;font-size:11px;'>⚠ ThreatBook key not set —<br>add [threatbook] api_key to secrets.toml</span>"}
+             "<br><br><span style='color:#f85149;font-size:11px;'>⚠ ThreatBook key not configured —<br>add [threatbook] api_key to secrets.toml</span>"}
         </div>
         """, unsafe_allow_html=True)
     else:
         for msg in st.session_state.chat_history:
             role  = "user" if msg["role"] == "user" else "bot"
             label = "You" if msg["role"] == "user" else "CTI Analyst"
-            safe  = (msg["content"]
-                     .replace("<", "&lt;").replace(">", "&gt;")
-                     .replace("\n", "<br>"))
             cti_tag = ""
             if msg.get("cti_enriched"):
-                cti_tag = '<span class="gc-cti-tag">⚡ ThreatBook enriched</span><br>'
-            st.markdown(f"""
-            <div class="gc-msg {role}">
-                <div class="gc-role">{label}</div>
-                <div class="gc-bubble">{cti_tag}{safe}</div>
-            </div>
-            """, unsafe_allow_html=True)
+                cti_tag = '<span class="gc-cti-tag">⚡ ThreatBook enriched</span>'
+            if role == "user":
+                # User messages: simple escaped text
+                safe = (msg["content"]
+                        .replace("&", "&amp;")
+                        .replace("<", "&lt;").replace(">", "&gt;")
+                        .replace("\n", "<br>"))
+                st.markdown(f"""
+                <div class="gc-msg user">
+                    <div class="gc-role">You</div>
+                    <div class="gc-bubble">{safe}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                # Bot messages: render via st.markdown inside a container for proper formatting
+                st.markdown(f'''
+                <div class="gc-msg bot">
+                    <div class="gc-role">CTI Analyst{" &nbsp;" + cti_tag if cti_tag else ""}</div>
+                </div>''', unsafe_allow_html=True)
+                with st.container():
+                    st.markdown(
+                        "<div class='gc-bot-md'></div>",
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(msg["content"])
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Suggestion chips ───────────────────────────────────────
